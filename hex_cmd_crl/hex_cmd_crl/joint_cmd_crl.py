@@ -90,22 +90,12 @@ For example:  Key: 1   ------>    joint0
             self.__node.get_parameter('key_timeout').get_parameter_value().double_value
 
         self.__joint_names = None
-            
 
         # state
-        
         self.__positions = None
         self.__velocity = None
         self.__effort = None
         
-        # publisher
-        # qos = QoSProfile(depth=1)
-        # self.__joint_cmd_pub = self.__node.create_publisher(
-        #     JointState,
-        #     'joint_cmd',  # 对应 hex_device_ros_wrapper 的 /joint_cmd 话题
-        #     qos
-        # )
-
         # publish thread
         self.__pub_thread = None
 
@@ -139,9 +129,6 @@ For example:  Key: 1   ------>    joint0
             JointState,'/motor_states',  self._sub_motor_status_callback , 10)
     
     def _sub_motor_status_callback(self, msg):
-        # print(f"motor msg: {msg}")
-        # self.__logger.info(f"motor msg: {msg.name}")
-        
         # 校验：获得数据后进行操作，然后取消订阅
         if msg.name:
             self.__joint_names = [v for v in msg.name]
@@ -230,7 +217,6 @@ For example:  Key: 1   ------>    joint0
             
             self.__pub_thread.wait_for_subscribers()
             
-
             self.__pub_thread.update(
                 self.__positions,
                 self.__velocity,
@@ -238,7 +224,6 @@ For example:  Key: 1   ------>    joint0
             )
             
             print(self.HELP_MSG)
-
             while self.ok():
                 key = self.__get_key(self.__key_timeout)
 
