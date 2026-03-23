@@ -87,7 +87,7 @@ Reading from the keyboard and Publishing to JointState!
         self.__node.declare_parameter('key_timeout', 0.5)       # s
 
         # self.__node.declare_parameter('joint_names', [f'joint{i}' for i in range(4)])  # 与你的 URDF / 配置一致
-        # self.__node.declare_parameter('joint_names', [f'joint{i}' for i in range(8)])  # 与你的 URDF / 配置一致
+        self.__node.declare_parameter('joint_names', [f'joint{i}' for i in range(8)])  # 与你的 URDF / 配置一致
 
         # Get parameters
         self.__position_step = \
@@ -101,19 +101,14 @@ Reading from the keyboard and Publishing to JointState!
         self.__key_timeout = \
             self.__node.get_parameter('key_timeout').get_parameter_value().double_value
 
-        # self.__joint_names = \
-        #     self.__node.get_parameter('joint_names').get_parameter_value().string_array_value
-        self.__joint_names = None
-            
+        self.__joint_names = \
+            self.__node.get_parameter('joint_names').get_parameter_value().string_array_value
 
         # state
-        
-        self.__positions = None
-        self.__velocity_limit = None
-        self.__effort_limit = None
-        
+        self.__positions = [0.0] * len(self.__joint_names)  # 目标位置
+        self.__velocity_limit = [0.0] * len(self.__joint_names)  # 目标位置
+        self.__effort_limit = [0.0] * len(self.__joint_names)  # 目标位置
         self.__status = 0
-        self._is_get_joint_name = False
 
         # publisher
         qos = QoSProfile(depth=1)
@@ -124,7 +119,11 @@ Reading from the keyboard and Publishing to JointState!
         )
 
         # publish thread
-        self.__pub_thread = None
+        self.__pub_thread = JointCmdPublishThread(
+            self.__repeat_rate,
+            self.__node,
+            self.__joint_names
+        )
 
         # spin thread
         self.__spin_thread = threading.Thread(target=self.__spin)
@@ -149,45 +148,6 @@ Reading from the keyboard and Publishing to JointState!
         rclpy.shutdown()
         self.__spin_thread.join(timeout=1.0)
 
-    def _start_topic(self):
-        self.motor_status = self.__node.create_subscription(
-            JointState,'/motor_states',  self._sub_motor_status_callback , 10)
-    
-    def _sub_motor_status_callback(self, msg):
-        # print(f"motor msg: {msg}")
-        # self.__logger.info(f"motor msg: {msg.name}")
-        
-        # 校验：获得数据后进行操作，然后取消订阅
-        if msg.name:
-            self.__joint_names = [v for v in msg.name]
-            self.__node.destroy_subscription(self.motor_status)
-            self.motor_status = None
-            self.__logger.info(f"motor msg is ok: {self.__joint_names}")
-            self.data_init()
-        
-        
-    def wait_for_data_init(self):
-        i = 0
-        while rclpy.ok() and self.__joint_names is None:
-            if i == 4 :
-                self.__logger(f"not get joint status")
-            i+=1
-            i%=5
-        if not rclpy.ok():
-            raise Exception("Got shutdown request before subscribers connected")
-    
-    def data_init(self):
-        # 初始化数据
-        self.__positions = [0.0] * len(self.__joint_names)  
-        self.__velocity_limit = [0.0] * len(self.__joint_names)  
-        self.__effort_limit = [0.0] * len(self.__joint_names)  
-
-        self.__pub_thread = JointCmdPublishThread(
-            self.__repeat_rate,
-            self.__node,
-            self.__joint_names
-        )    
-    
     def motor_vel_crl_idx(self, idx:int):
         tmp = [0.0] * len(self.__joint_names)
         if idx >=0:
@@ -247,19 +207,13 @@ Reading from the keyboard and Publishing to JointState!
     def run(self):
         """Main teleop control loop"""
         try:
-            self.wait_for_data_init()
-            
             self.__pub_thread.wait_for_subscribers()
-            
-
             self.__pub_thread.update(
                 self.__positions,
                 self.__velocity_limit,
                 self.__effort_limit
             )
 
-            self._start_topic()
-            
             # print(self.HELP_MSG)
             print(self.__status_string())
             # print("ttg_test")
@@ -381,7 +335,7 @@ class JointCmdPublishThread(threading.Thread):
                 msg.velocity = list(self.velocity_limit)
                 msg.effort = list(self.effort_limit)
             # 发布
-            # self.publisher.publish(msg)
+            self.publisher.publish(msg)
 
         # 退出时发布一次零速度/力矩，确保机器人停止
         msg.header.stamp = self.node.get_clock().now().to_msg()
@@ -394,7 +348,6 @@ class JointCmdPublishThread(threading.Thread):
 
 def main(args=None):
     """Main function to start joint_cmd teleop keyboard control"""
-    teleop =None 
     try:
         teleop = JointCmdTeleopKeyboard()
         teleop.run()
@@ -403,9 +356,7 @@ def main(args=None):
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        
-        if teleop is not None:
-            teleop.shutdown()
+        teleop.shutdown()
 
 
 if __name__ == "__main__":
