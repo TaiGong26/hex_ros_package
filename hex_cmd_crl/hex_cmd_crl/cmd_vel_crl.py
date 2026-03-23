@@ -272,7 +272,6 @@ class JointCmdPublishThread(threading.Thread):
             self.timeout = 1.0 / rate
         else:
             self.timeout = None
-
         self.start()
 
     def wait_for_subscribers(self):

@@ -35,8 +35,8 @@ class JointCmdTeleopKeyboard:
     """ROS2 Teleop keyboard control interface for joint_cmd (JointState)"""
 
     HELP_MSG = """
-Reading from the keyboard and Publishing to JointState!
-
+Test the motor by inputting numbers, not by index.
+For example:  Key: 1   ------>    joint0
 """
 
     # 键盘 -> (joint_index, position_inc)
@@ -80,48 +80,31 @@ Reading from the keyboard and Publishing to JointState!
         self.__logger = self.__node.get_logger()
 
         # parameters
-        self.__node.declare_parameter('position_step', 0.0)     # rad per key press
-        self.__node.declare_parameter('velocity_limit', 0.5)    # rad/s
-        self.__node.declare_parameter('effort_limit', 0.0)     # Nm or N
         self.__node.declare_parameter('repeat_rate', 100.0)     # Hz
         self.__node.declare_parameter('key_timeout', 0.5)       # s
 
-        # self.__node.declare_parameter('joint_names', [f'joint{i}' for i in range(4)])  # 与你的 URDF / 配置一致
-        # self.__node.declare_parameter('joint_names', [f'joint{i}' for i in range(8)])  # 与你的 URDF / 配置一致
-
         # Get parameters
-        self.__position_step = \
-            self.__node.get_parameter('position_step').get_parameter_value().double_value
-        self.__velocity_limit = \
-            self.__node.get_parameter('velocity_limit').get_parameter_value().double_value
-        self.__effort_limit = \
-            self.__node.get_parameter('effort_limit').get_parameter_value().double_value
         self.__repeat_rate = \
             self.__node.get_parameter('repeat_rate').get_parameter_value().double_value
         self.__key_timeout = \
             self.__node.get_parameter('key_timeout').get_parameter_value().double_value
 
-        # self.__joint_names = \
-        #     self.__node.get_parameter('joint_names').get_parameter_value().string_array_value
         self.__joint_names = None
             
 
         # state
         
         self.__positions = None
-        self.__velocity_limit = None
-        self.__effort_limit = None
+        self.__velocity = None
+        self.__effort = None
         
-        self.__status = 0
-        self._is_get_joint_name = False
-
         # publisher
-        qos = QoSProfile(depth=1)
-        self.__joint_cmd_pub = self.__node.create_publisher(
-            JointState,
-            'joint_cmd',  # 对应 hex_device_ros_wrapper 的 /joint_cmd 话题
-            qos
-        )
+        # qos = QoSProfile(depth=1)
+        # self.__joint_cmd_pub = self.__node.create_publisher(
+        #     JointState,
+        #     'joint_cmd',  # 对应 hex_device_ros_wrapper 的 /joint_cmd 话题
+        #     qos
+        # )
 
         # publish thread
         self.__pub_thread = None
@@ -164,7 +147,7 @@ Reading from the keyboard and Publishing to JointState!
             self.__joint_names = [v for v in msg.name]
             self.__node.destroy_subscription(self.motor_status)
             self.motor_status = None
-            self.__logger.info(f"motor msg is ok: {self.__joint_names}")
+            self.__logger.info(f"motor is get: {self.__joint_names}")
             self.data_init()
         
     def wait_for_data_init(self):
@@ -181,8 +164,8 @@ Reading from the keyboard and Publishing to JointState!
     def data_init(self):
         # 初始化数据
         self.__positions = [0.0] * len(self.__joint_names)  
-        self.__velocity_limit = [0.0] * len(self.__joint_names)  
-        self.__effort_limit = [0.0] * len(self.__joint_names)  
+        self.__velocity = [0.0] * len(self.__joint_names)  
+        self.__effort = [0.0] * len(self.__joint_names)  
 
         self.__pub_thread = JointCmdPublishThread(
             self.__repeat_rate,
@@ -194,7 +177,6 @@ Reading from the keyboard and Publishing to JointState!
         tmp = [0.0] * len(self.__joint_names)
         if idx >=0:
             tmp[idx] = 0.5
-            self.__logger.info(f"joint:{idx},is running")
         else:
             self.__logger.info(f"joint not running")
         return tmp.copy()
@@ -235,17 +217,6 @@ Reading from the keyboard and Publishing to JointState!
         
         return key
 
-    def __status_string(self) -> str:
-        """Generate status string for positions / velocities."""
-        lines = ["currently:"]
-        for i, name in enumerate(self.__joint_names):
-            lines.append(
-                f"  {name}: pos={self.__positions[i]:.3f} "
-                f"vel_limit={self.__velocity_limit[i]:.3f} "
-                f"effort_limit={self.__effort_limit[i]:.3f}"
-            )
-        return "\n".join(lines)
-
     def run(self):
         """Main teleop control loop"""
         try:
@@ -262,13 +233,11 @@ Reading from the keyboard and Publishing to JointState!
 
             self.__pub_thread.update(
                 self.__positions,
-                self.__velocity_limit,
-                self.__effort_limit
+                self.__velocity,
+                self.__effort
             )
             
-            # print(self.HELP_MSG)
-            print(self.__status_string())
-            # print("ttg_test")
+            print(self.HELP_MSG)
 
             while self.ok():
                 key = self.__get_key(self.__key_timeout)
@@ -277,13 +246,13 @@ Reading from the keyboard and Publishing to JointState!
                 if key and key.isdigit():
                     idx = int(key) - 1
                     if -1 <= idx < len(self.__joint_names):
-                        self.__velocity_limit = self.motor_vel_crl_idx(idx)
+                        self.__velocity = self.motor_vel_crl_idx(idx)
 
                 # 更新发布线程
                 self.__pub_thread.update(
                     self.__positions,
-                    self.__velocity_limit,
-                    self.__effort_limit
+                    self.__velocity,
+                    self.__effort
                 )
 
         except Exception as e:
@@ -315,8 +284,8 @@ class JointCmdPublishThread(threading.Thread):
         )
 
         self.positions = [0.0] * len(joint_names)
-        self.velocity_limit = [0.0] * len(joint_names)
-        self.effort_limit = [0.0] * len(joint_names)
+        self.velocity = [0.0] * len(joint_names)
+        self.effort = [0.0] * len(joint_names)
         self.condition = threading.Condition()
         self.done = False
 
@@ -353,15 +322,15 @@ class JointCmdPublishThread(threading.Thread):
     def update(
         self,
         positions:list,
-        velocity_limit: list,
-        effort_limit: list
+        velocity: list,
+        effort: list
     ):
         # self.condition.acquire()
         
         with self.condition:
             self.positions = [float(p) for p in positions]
-            self.velocity_limit = [float(v) for v in velocity_limit]
-            self.effort_limit = [float(e) for e in effort_limit]  
+            self.velocity = [float(v) for v in velocity]
+            self.effort = [float(e) for e in effort]  
             
             # 通知发布线程有新数据
             self.condition.notify()
@@ -382,11 +351,11 @@ class JointCmdPublishThread(threading.Thread):
 
                 # 填充 JointState 消息
                 msg.header.stamp = self.node.get_clock().now().to_msg()
-                msg.name = list(self.joint_names)  # 必须与关节顺序一致
+                msg.name = list(self.joint_names) 
 
                 msg.position = list(self.positions)
-                msg.velocity = list(self.velocity_limit)
-                msg.effort = list(self.effort_limit)
+                msg.velocity = list(self.velocity)
+                msg.effort = list(self.effort)
             # 发布
             self.publisher.publish(msg)
 
@@ -397,7 +366,6 @@ class JointCmdPublishThread(threading.Thread):
         msg.velocity = [0.0] * len(self.joint_names)
         msg.effort = [0.0] * len(self.joint_names)
         self.publisher.publish(msg)
-
 
 def main(args=None):
     """Main function to start joint_cmd teleop keyboard control"""

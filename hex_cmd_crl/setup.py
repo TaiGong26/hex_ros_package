@@ -20,8 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'tamplate_node = hex_cmd_crl.tamplate_node:main',
-            'joint_cmd_crl = hex_cmd_crl.joint_cmd_crl:main'
+            'joint_cmd_crl = hex_cmd_crl.joint_cmd_crl:main',
+            'cmd_vel_crl =cmd_vel_crl.joint_cmd_crl:main'
+            
             
         ],
     },
