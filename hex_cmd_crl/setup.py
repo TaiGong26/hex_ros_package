@@ -21,9 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'joint_cmd_crl = hex_cmd_crl.joint_cmd_crl:main',
-            'cmd_vel_crl =cmd_vel_crl.joint_cmd_crl:main'
-            
-            
+            'cmd_vel_crl = hex_cmd_crl.cmd_vel_crl:main'
         ],
     },
 )

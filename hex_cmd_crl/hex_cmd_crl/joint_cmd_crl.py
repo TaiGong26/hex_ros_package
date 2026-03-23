@@ -35,40 +35,11 @@ class JointCmdTeleopKeyboard:
     """ROS2 Teleop keyboard control interface for joint_cmd (JointState)"""
 
     HELP_MSG = """
+    u:quicken
+    p:decelerate
 Test the motor by inputting numbers, not by index.
 For example:  Key: 1   ------>    joint0
 """
-
-    # 键盘 -> (joint_index, position_inc)
-    # 这里用简单的 6 关节示例，你可以按实际关节数修改
-    MOVE_BINDINGS: Dict[str, Tuple[int, float]] = {
-        # joint 0
-        'i': (0, 1.0),
-        ',': (0, -1.0),
-        # joint 1
-        'u': (1, 1.0),
-        'm': (1, -1.0),
-        # joint 2
-        'o': (2, 1.0),
-        '.': (2, -1.0),
-        # joint 3
-        'j': (3, 1.0),
-        'l': (3, -1.0),
-        # joint 4
-        'k': (4, 1.0),
-        # joint 5
-        # 自行扩展，比如 'n' / 'b' 等
-    }
-
-    # 速度/力矩缩放因子绑定
-    SPEED_BINDINGS: Dict[str, Tuple[float, float]] = {
-        'q': (1.1, 1.1),
-        'z': (0.9, 0.9),
-        'w': (1.1, 1.0),
-        'x': (0.9, 1.0),
-        'e': (1.0, 1.1),
-        'c': (1.0, 0.9),
-    }
 
     def __init__(self, name: str = "joint_cmd_key_control"):
         # name
@@ -80,10 +51,16 @@ For example:  Key: 1   ------>    joint0
         self.__logger = self.__node.get_logger()
 
         # parameters
+        self.__node.declare_parameter('speed_min_limit', 0)
+        self.__node.declare_parameter('speed_max_limit', 4.0)
         self.__node.declare_parameter('repeat_rate', 100.0)     # Hz
         self.__node.declare_parameter('key_timeout', 0.5)       # s
 
         # Get parameters
+        self.__speed_min_limit = \
+            self.__node.get_parameter('speed_min_limit').get_parameter_value().double_value
+        self.__speed_max_limit = \
+            self.__node.get_parameter('speed_max_limit').get_parameter_value().double_value
         self.__repeat_rate = \
             self.__node.get_parameter('repeat_rate').get_parameter_value().double_value
         self.__key_timeout = \
@@ -95,6 +72,8 @@ For example:  Key: 1   ------>    joint0
         self.__positions = None
         self.__velocity = None
         self.__effort = None
+        
+        self.__speed = 0.5
         
         # publish thread
         self.__pub_thread = None
@@ -163,7 +142,7 @@ For example:  Key: 1   ------>    joint0
     def motor_vel_crl_idx(self, idx:int):
         tmp = [0.0] * len(self.__joint_names)
         if idx >=0:
-            tmp[idx] = 0.5
+            tmp[idx] = self.__speed
         else:
             self.__logger.info(f"joint not running")
         return tmp.copy()
@@ -233,6 +212,12 @@ For example:  Key: 1   ------>    joint0
                     if -1 <= idx < len(self.__joint_names):
                         self.__velocity = self.motor_vel_crl_idx(idx)
 
+                if key == "u":
+                    self.__speed = max(self.__speed_min_limit,self.__speed + 0.2)
+                if key == "p":
+                    self.__speed = max(self.__speed_min_limit,self.__speed - 0.2)
+                
+                
                 # 更新发布线程
                 self.__pub_thread.update(
                     self.__positions,
@@ -264,7 +249,7 @@ class JointCmdPublishThread(threading.Thread):
         qos = QoSProfile(depth=1)
         self.publisher = self.node.create_publisher(
             JointState,
-            'joint_cmd',  # 与 hex_device_ros_wrapper 中的 /joint_cmd 一致
+            'joint_cmd', 
             qos
         )
 
