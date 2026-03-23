@@ -36,31 +36,7 @@ class JointCmdTeleopKeyboard:
 
     HELP_MSG = """
 Reading from the keyboard and Publishing to JointState!
----------------------------
-Joint control (increment position):
-   u    i    o
-   j    k    l
-   m    ,    .
 
-Joint index mapping:
-   0: joint0
-   1: joint1
-   2: joint2
-   3: joint3
-   4: joint4
-   5: joint5
-
-Anything else : stop
-
-q/z : increase/decrease position step by 10%
-w/x : increase/decrease velocity limit by 10%
-e/c : increase/decrease effort limit by 10%
-
-r : reset all joint positions to zero
-s : save current positions as "home"
-h : move to "home" positions
-
-CTRL-C to quit
 """
 
     # 键盘 -> (joint_index, position_inc)
@@ -132,7 +108,6 @@ CTRL-C to quit
         self.__positions = [0.0] * len(self.__joint_names)  # 目标位置
         self.__velocity_limit = [0.0] * len(self.__joint_names)  # 目标位置
         self.__effort_limit = [0.0] * len(self.__joint_names)  # 目标位置
-        # self.__home_positions = [0.0] * len(self.__joint_names)  # 保存的“home”位置
         self.__status = 0
 
         # publisher
@@ -171,11 +146,15 @@ CTRL-C to quit
         self.__restore_terminal_settings(self.__settings)
         self.__node.destroy_node()
         rclpy.shutdown()
-        self.__spin_thread.join()
+        self.__spin_thread.join(timeout=1.0)
 
     def motor_vel_crl_idx(self, idx:int):
         tmp = [0.0] * len(self.__joint_names)
-        tmp[idx] = 0.5
+        if idx >=0:
+            tmp[idx] = 0.5
+            self.__logger.info(f"joint:{idx},is running")
+        else:
+            self.__logger.info(f"joint not running")
         return tmp.copy()
     
     def __save_terminal_settings(self):
@@ -220,8 +199,8 @@ CTRL-C to quit
         for i, name in enumerate(self.__joint_names):
             lines.append(
                 f"  {name}: pos={self.__positions[i]:.3f} "
-                f"vel_limit={self.__velocity_limit:.3f} "
-                f"effort_limit={self.__effort_limit:.3f}"
+                f"vel_limit={self.__velocity_limit[i]:.3f} "
+                f"effort_limit={self.__effort_limit[i]:.3f}"
             )
         return "\n".join(lines)
 
@@ -229,8 +208,6 @@ CTRL-C to quit
         """Main teleop control loop"""
         try:
             self.__pub_thread.wait_for_subscribers()
-            
-            
             self.__pub_thread.update(
                 self.__positions,
                 self.__velocity_limit,
@@ -238,7 +215,8 @@ CTRL-C to quit
             )
 
             # print(self.HELP_MSG)
-            # print(self.__status_string())
+            print(self.__status_string())
+            # print("ttg_test")
 
             while self.ok():
                 key = self.__get_key(self.__key_timeout)
@@ -246,7 +224,7 @@ CTRL-C to quit
                 # 此处增加校验
                 if key and key.isdigit():
                     idx = int(key) - 1
-                    if 0 <= idx < len(self.__joint_names):
+                    if -1 <= idx < len(self.__joint_names):
                         self.__velocity_limit = self.motor_vel_crl_idx(idx)
 
                 # 更新发布线程
@@ -345,7 +323,6 @@ class JointCmdPublishThread(threading.Thread):
         msg = JointState()
 
         while not self.done:
-            # self.condition.acquire()
             with self.condition:
                 # 等待新数据或超时（周期性发布）
                 self.condition.wait(self.timeout)
@@ -357,10 +334,6 @@ class JointCmdPublishThread(threading.Thread):
                 msg.position = list(self.positions)
                 msg.velocity = list(self.velocity_limit)
                 msg.effort = list(self.effort_limit)
-            
-
-            # self.condition.release()
-
             # 发布
             self.publisher.publish(msg)
 
