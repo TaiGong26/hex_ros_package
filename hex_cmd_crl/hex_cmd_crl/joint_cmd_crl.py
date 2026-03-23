@@ -143,10 +143,12 @@ Reading from the keyboard and Publishing to JointState!
         return rclpy.ok()
 
     def shutdown(self):
-        self.__pub_thread.stop()
+        if self.__pub_thread is not None:
+            self.__pub_thread.stop()
         self.__restore_terminal_settings(self.__settings)
         self.__node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
         self.__spin_thread.join(timeout=1.0)
 
     def _start_topic(self):
@@ -165,14 +167,14 @@ Reading from the keyboard and Publishing to JointState!
             self.__logger.info(f"motor msg is ok: {self.__joint_names}")
             self.data_init()
         
-        
     def wait_for_data_init(self):
         i = 0
         while rclpy.ok() and self.__joint_names is None:
             if i == 4 :
-                self.__logger(f"not get joint status")
+                self.__logger.info(f"not get joint status")
             i+=1
             i%=5
+            rclpy.spin_once(self.__node, timeout_sec=1.0)
         if not rclpy.ok():
             raise Exception("Got shutdown request before subscribers connected")
     
@@ -247,7 +249,13 @@ Reading from the keyboard and Publishing to JointState!
     def run(self):
         """Main teleop control loop"""
         try:
+            self._start_topic()
+            
             self.wait_for_data_init()
+            
+            # 等待创建
+            while self.__pub_thread is None:
+                rclpy.spin_once(self.__node, timeout_sec=0.1)
             
             self.__pub_thread.wait_for_subscribers()
             
@@ -257,8 +265,6 @@ Reading from the keyboard and Publishing to JointState!
                 self.__velocity_limit,
                 self.__effort_limit
             )
-
-            self._start_topic()
             
             # print(self.HELP_MSG)
             print(self.__status_string())
@@ -296,6 +302,7 @@ class JointCmdPublishThread(threading.Thread):
         node: rclpy.node.Node,
         joint_names
     ):
+        
         super(JointCmdPublishThread, self).__init__()
         self.node = node
         self.joint_names = joint_names
@@ -381,7 +388,7 @@ class JointCmdPublishThread(threading.Thread):
                 msg.velocity = list(self.velocity_limit)
                 msg.effort = list(self.effort_limit)
             # 发布
-            # self.publisher.publish(msg)
+            self.publisher.publish(msg)
 
         # 退出时发布一次零速度/力矩，确保机器人停止
         msg.header.stamp = self.node.get_clock().now().to_msg()
